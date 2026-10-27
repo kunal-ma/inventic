@@ -1,0 +1,67 @@
+
+name: Build and Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release tag (e.g. 1.21.1-1.0.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout source
+        uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      - name: Build mod
+        run: ./gradlew build
+
+      - name: Prepare release JAR
+        shell: bash
+        env:
+          VERSION: ${{ github.event.inputs.version }}
+        run: |
+          set -euo pipefail
+
+          mapfile -t jars < <(
+            find build/libs -maxdepth 1 -type f -name '*.jar' \
+              ! -name '*-sources.jar' \
+              ! -name '*-javadoc.jar'
+          )
+
+          if [ "${#jars[@]}" -ne 1 ]; then
+            echo "Expected exactly one production JAR, found ${#jars[@]}."
+            printf '%s\n' "${jars[@]}"
+            exit 1
+          fi
+
+          mkdir -p dist
+          cp "${jars[0]}" "dist/Inventic-${VERSION}.jar"
+
+          echo "Prepared dist/Inventic-${VERSION}.jar"
+
+      - name: Create Draft GitHub Release
+        uses: softprops/action-gh-release@v3
+        with:
+          tag_name: ${{ github.event.inputs.version }}
+          name: Inventic v${{ github.event.inputs.version }} for ${{ github.ref_name }}
+          draft: true
+          prerelease: false
+          generate_release_notes: false
+          files: dist/*.jar
